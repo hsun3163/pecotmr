@@ -1,16 +1,15 @@
 #' @include AllGenerics.R AllClasses.R FineMappingEntry.R tupleSelectors.R
 NULL
 
-# Detect an untrimmed fSuSiE (susiF) fit carrying the wavelet slots that the
-# credible band needs. A trimmed fit drops these, so we degrade to empty.
+# Accept retained functional summaries or an untrimmed fit that can make bands.
 # @noRd
 .isFsusieFit <- function(fit) {
     !is.null(fit) &&
         is.list(fit) &&
-        !is.null(fit$fitted_wc2) &&
         !is.null(fit$fitted_func) &&
         !is.null(fit$outing_grid) &&
-        !is.null(fit$alpha)
+        (!is.null(fit$cred_band) ||
+             (!is.null(fit$fitted_wc2) && !is.null(fit$alpha)))
 }
 
 # Populate `obj$cred_band` via fsusieR's wavethresh/GenW band computation. That
@@ -20,6 +19,9 @@ NULL
 # an upstream fsusieR change surfaces as a clear error, not a silent NULL.
 # @noRd
 .fsusiePopulateCredibleBand <- function(fit) {
+    # Native post_processing="none" can leave zero-filled placeholder bands.
+    # Only reuse bands after trimming has removed the reconstruction fields.
+    if (is.null(fit$fitted_wc2) && !is.null(fit$cred_band)) return(fit)
     fn <- tryCatch(
         get("update_cal_credible_band.susiF", envir = asNamespace("fsusieR")),
         error = function(e) NULL
@@ -168,8 +170,8 @@ NULL
 #' the fitted effect curve and its credible band over the functional grid, one
 #' row per (credible set, grid position). Wraps the upstream fSuSiE band
 #' computation (fsusieR's internal \code{update_cal_credible_band.susiF} +
-#' \code{get_fitted_effect}). Requires an UNtrimmed fit (the wavelet slots are
-#' dropped by trimming); degrades to zero rows for non-fSuSiE or trimmed fits.
+#' \code{get_fitted_effect}). Uses saved bands in trimmed fits, or computes
+#' them from an untrimmed fit. Returns zero rows when functional fields are absent.
 #'
 #' @param x A \code{FineMappingEntry} or \code{FineMappingResultBase}.
 #' @param ... Ignored.
@@ -202,8 +204,8 @@ setMethod("fsusieCredibleBand", "FineMappingResultBase", function(x, ...) {
 #' zero (the genomic footprint of each fSuSiE effect), from the upstream
 #' \code{fsusieR::affected_reg}. Returns a \code{GRanges} with the credible-set
 #' label, its purity, and the effect \code{direction}
-#' (\code{"pos"}/\code{"neg"}; upstream discards it). Requires an UNtrimmed fit;
-#' empty otherwise.
+#' (\code{"pos"}/\code{"neg"}; upstream discards it). Uses retained functional
+#' summaries or an untrimmed fit; empty when those fields are absent.
 #'
 #' @param x A \code{FineMappingEntry} or \code{FineMappingResultBase}.
 #' @param ... Ignored.

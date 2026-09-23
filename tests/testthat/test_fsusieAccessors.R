@@ -1,6 +1,6 @@
 context("fsusieAccessors")
 
-.fsa_makeFit <- function() {
+.fsa_makeFit <- function(post_processing = "none") {
     set.seed(1)
     n <- 150L
     p <- 24L
@@ -23,7 +23,7 @@ context("fsusieAccessors")
         Y = Y,
         pos = seq_len(J),
         L = 5,
-        post_processing = "none",
+        post_processing = post_processing,
         verbose = FALSE
     ))
 }
@@ -64,6 +64,35 @@ test_that("fsusieCredibleBand returns a long effect + band table (lower <= effec
         cb$lower <= cb$effect + 1e-9 & cb$effect <= cb$upper + 1e-9
     ))
     expect_true(all(grepl("^fsusie_", cb$cs)))
+})
+
+test_that("trimmed fSuSiE survives serialization with curves, bands and coloc inputs", {
+    skip_if_not_installed("fsusieR")
+    skip_if_not_installed("wavethresh")
+    for (mode in c("none", "TI")) {
+        fit <- .fsa_makeFit(mode)
+        expectedFit <- pecotmr:::.fsusiePopulateCredibleBand(fit)
+        tables <- list(list(sets = list(cs = list())))
+        trimmed <- pecotmr:::trimFinemappingFit(
+            fit, seq_along(fit$alpha), "fsusie", tables
+        )
+        entry <- unserialize(serialize(.fsa_entry(trimmed), NULL))
+        saved <- getSusieFit(entry)
+        expect_null(saved$fitted_wc)
+        expect_null(saved$fitted_wc2)
+        expect_identical(saved$fitted_func, fit$fitted_func)
+        expect_identical(saved$cred_band, expectedFit$cred_band)
+        expect_equal(fsusieCredibleBand(entry), fsusieCredibleBand(.fsa_entry(fit)))
+        expect_equal(fsusieAffectedRegions(entry), fsusieAffectedRegions(.fsa_entry(fit)))
+        lbf <- pecotmr:::.colocExtractLbfFromEntry(
+            entry, FALSE, NULL, 0.5, 1e-9
+        )
+        expected <- pecotmr:::.asLbfMatrix(fit)
+        colnames(expected) <- entry@variantIds
+        expect_equal(lbf$lbf, expected)
+        colocResult <- coloc::coloc.bf_bf(lbf$lbf, lbf$lbf)
+        expect_true("PP.H4.abf" %in% names(colocResult$summary))
+    }
 })
 
 test_that("fsusieAffectedRegions returns a GRanges with cs / purity / direction", {
